@@ -1,6 +1,8 @@
 """Extraction service: endpoints HTTP delegando en extractor y lógica de aplicación."""
 
-from fastapi import APIRouter, HTTPException, UploadFile
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from app import compute_checksum, save_to_persistence
@@ -16,11 +18,11 @@ class ExtractionResponse(BaseModel):
     document_id: str | None = None
 
 
-extractor = PyPdfTextExtractor()
-
-
 @router.post("/extract", response_model=ExtractionResponse)
-async def extract_text(file: UploadFile) -> ExtractionResponse:
+async def extract_text(
+    file: UploadFile,
+    extractor: Annotated[PyPdfTextExtractor, Depends()],
+) -> ExtractionResponse:
     if not has_pdf_extension(file.filename):
         raise HTTPException(status_code=400, detail="El archivo debe tener extensión .pdf")
 
