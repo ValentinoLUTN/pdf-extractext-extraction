@@ -37,6 +37,6 @@ async def save_to_persistence(content: str, checksum: str) -> dict:
             if attempt == retries - 1:
                 raise HTTPException(
                     status_code=502,
-                    detail=f"Error communicating with persistence-service: {str(e)}",
+                    detail=f"Error communicating with persistence-service: {e!s}",
                 ) from e
     return {}

@@ -12,9 +12,9 @@ from shared.domain.pdf_validator import PdfValidationResult, PdfValidator
 from shared.domain.pypdf_text_extractor import PyPdfTextExtractor
 
 __all__ = [
+    "MAX_PDF_SIZE_BYTES",
     "DomainError",
     "InvalidPdfFormatError",
-    "MAX_PDF_SIZE_BYTES",
     "PdfExtractionError",
     "PdfTooLargeError",
     "PdfValidationResult",

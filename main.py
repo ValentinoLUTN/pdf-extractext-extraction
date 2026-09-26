@@ -2,6 +2,7 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from routes import router
 
 app = FastAPI(title="PDF Extraction Service", version="1.0.0")

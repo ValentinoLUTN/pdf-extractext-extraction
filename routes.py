@@ -1,9 +1,9 @@
 """Extraction service: endpoints HTTP delegando en extractor y lógica de aplicación."""
 
-from app import compute_checksum, save_to_persistence
 from fastapi import APIRouter, HTTPException, UploadFile
 from pydantic import BaseModel
 
+from app import compute_checksum, save_to_persistence
 from shared.domain.exceptions import PdfExtractionError
 from shared.domain.filename import has_pdf_extension
 from shared.domain.pypdf_text_extractor import PyPdfTextExtractor
@@ -38,4 +38,4 @@ async def extract_text(file: UploadFile) -> ExtractionResponse:
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}") from e
+        raise HTTPException(status_code=500, detail=f"Error interno: {e!s}") from e

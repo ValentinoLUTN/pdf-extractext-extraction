@@ -28,6 +28,6 @@ class PyPdfTextExtractor:
             return "\n".join(extracted_texts)
         except Exception as error:
             raise PdfExtractionError(
-                message=f"Error al extraer texto con pypdf: {str(error)}",
+                message=f"Error al extraer texto con pypdf: {error!s}",
                 original_error=error,
             ) from error
