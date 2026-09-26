@@ -10,6 +10,14 @@ Instalar las dependencias:
 pip install -r requirements.txt
 ```
 
+Para desarrollo también hacen falta `pytest` y `ruff`, que no van en la imagen de producción:
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+`requirements-dev.txt` ya incluye `requirements.txt`, así que alcanza con ese comando para trabajar localmente.
+
 ## Ejecución
 
 Levantar el servidor en modo desarrollo:
@@ -25,6 +33,16 @@ Correr los tests:
 ```bash
 pytest tests/ -v
 ```
+
+## Lint
+
+Verificar estilo y errores con ruff:
+
+```bash
+ruff check .
+```
+
+Ambos comandos se ejecutan en cada push y PR mediante GitHub Actions (`.github/workflows/ci.yml`).
 
 ## Variables de entorno
 
