@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    persistence_service_url: str = "http://persistence.localhost"
+    persistence_service_url: str = "http://persistence-service:8000"
 
 
 settings = Settings()

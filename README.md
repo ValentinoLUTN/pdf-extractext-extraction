@@ -30,4 +30,4 @@ pytest tests/ -v
 
 | Variable                  | Descripción                                  | Valor por defecto        |
 | ------------------------- | -------------------------------------------- | ------------------------ |
-| `PERSISTENCE_SERVICE_URL` | URL base del servicio de persistencia        | `http://persistence.localhost` |
+| `PERSISTENCE_SERVICE_URL` | URL base del servicio de persistencia        | `http://persistence-service:8000` |
