@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 
+import routes
 from main import app
 
 client = TestClient(app)
@@ -34,6 +35,12 @@ startxref
 0000
 %%EOF"""
 
+PERSISTED = {"id": "doc-1", "content": "", "checksum": "abc"}
+
+
+def _persistence_post(response):
+    return patch("httpx.AsyncClient.post", new=AsyncMock(return_value=response))
+
 
 def test_health_check():
     response = client.get("/health")
@@ -41,24 +48,34 @@ def test_health_check():
     assert response.json()["service"] == "extraction-service"
 
 
-def test_extract_valid_pdf_returns_text():
-    with patch(
-        "httpx.AsyncClient.post",
-        new=AsyncMock(
-            return_value=MagicMock(
-                status_code=201,
-                json=lambda: {"id": "doc-1", "content": "", "checksum": "abc"},
-                raise_for_status=lambda: None,
-            )
-        ),
-    ):
+def test_extract_valid_pdf_returns_document_and_text():
+    post = AsyncMock(
+        return_value=MagicMock(
+            status_code=201, json=lambda: PERSISTED, raise_for_status=lambda: None
+        )
+    )
+    with patch("httpx.AsyncClient.post", new=post):
         response = client.post("/extract", files={"file": ("doc.pdf", PDF, "application/pdf")})
 
     assert response.status_code == 200
-    assert isinstance(response.json()["text"], str)
+    body = response.json()
+    assert set(body) == {"id", "content", "checksum", "text"}
+    assert body["id"] == "doc-1"
+    assert body["checksum"] == "abc"
+    assert isinstance(body["text"], str)
 
 
-def test_extract_non_pdf_returns_400():
+def test_extract_non_pdf_returns_415():
     response = client.post("/extract", files={"file": ("doc.txt", b"not a pdf", "text/plain")})
 
-    assert response.status_code == 400
+    assert response.status_code == 415
+
+
+def test_extract_oversized_file_returns_413(monkeypatch):
+    monkeypatch.setattr(routes, "MAX_PDF_SIZE_BYTES", 100)
+
+    response = client.post(
+        "/extract", files={"file": ("doc.pdf", b"x" * (200 * 1024), "application/pdf")}
+    )
+
+    assert response.status_code == 413
