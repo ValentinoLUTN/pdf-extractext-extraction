@@ -1,5 +1,6 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 from fastapi.testclient import TestClient
 
 import routes
@@ -42,6 +43,11 @@ def _persistence_post(response):
     return patch("httpx.AsyncClient.post", new=AsyncMock(return_value=response))
 
 
+def _http_response(status_code, payload=None):
+    request = httpx.Request("POST", "http://persistence-service:8000/documents")
+    return httpx.Response(status_code, json=payload, request=request)
+
+
 def test_health_check():
     response = client.get("/health")
     assert response.status_code == 200
@@ -61,6 +67,22 @@ def test_extract_valid_pdf_returns_document_and_text():
     body = response.json()
     assert set(body) == {"id", "content", "checksum", "text"}
     assert body["id"] == "doc-1"
+    assert body["checksum"] == "abc"
+    assert isinstance(body["text"], str)
+
+
+def test_extract_duplicate_pdf_returns_existing_document():
+    post = AsyncMock(return_value=_http_response(409))
+    existing = {"id": "doc-42", "content": "texto previo", "checksum": "abc"}
+    get = AsyncMock(return_value=_http_response(200, existing))
+
+    with patch("httpx.AsyncClient.post", new=post), patch("httpx.AsyncClient.get", new=get):
+        response = client.post("/extract", files={"file": ("doc.pdf", PDF, "application/pdf")})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == "doc-42"
+    assert body["content"] == "texto previo"
     assert body["checksum"] == "abc"
     assert isinstance(body["text"], str)
 

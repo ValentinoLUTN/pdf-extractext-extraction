@@ -71,8 +71,20 @@ def test_save_to_persistence_raises_502_after_three_failed_attempts(failure):
         asyncio.run(save_to_persistence(TEXT, CHECKSUM))
 
     assert exc_info.value.status_code == 502
-    assert "persistence-service" in exc_info.value.detail
+    assert exc_info.value.detail == "No se pudo guardar el documento en persistence-service"
     assert post.await_count == 3
+
+
+@pytest.mark.parametrize("status_code", [400, 422])
+def test_save_to_persistence_forwards_4xx_without_retry(status_code):
+    post = AsyncMock(side_effect=[_response(status_code)] * 3)
+
+    with patch("httpx.AsyncClient.post", new=post), pytest.raises(HTTPException) as exc_info:
+        asyncio.run(save_to_persistence(TEXT, CHECKSUM))
+
+    assert exc_info.value.status_code == status_code
+    assert exc_info.value.detail == "No se pudo guardar el documento en persistence-service"
+    assert post.await_count == 1
 
 
 def test_save_to_persistence_returns_existing_document_on_conflict():
@@ -100,8 +112,8 @@ def test_save_to_persistence_skips_conflict_lookup_without_conflict():
 
 @pytest.mark.parametrize("lookup_failure", [_connect_error(), _response(404)])
 def test_save_to_persistence_raises_502_when_conflict_lookup_fails(lookup_failure):
-    post = AsyncMock(side_effect=[_response(409)] * 3)
-    get = AsyncMock(side_effect=[lookup_failure] * 3)
+    post = AsyncMock(return_value=_response(409))
+    get = AsyncMock(side_effect=[lookup_failure])
 
     with (
         patch("httpx.AsyncClient.post", new=post),
@@ -111,5 +123,6 @@ def test_save_to_persistence_raises_502_when_conflict_lookup_fails(lookup_failur
         asyncio.run(save_to_persistence(TEXT, CHECKSUM))
 
     assert exc_info.value.status_code == 502
-    assert post.await_count == 3
-    assert get.await_count == 3
+    assert exc_info.value.detail == "No se pudo guardar el documento en persistence-service"
+    assert post.await_count == 1
+    assert get.await_count == 1
