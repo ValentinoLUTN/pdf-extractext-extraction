@@ -87,6 +87,15 @@ def test_extract_duplicate_pdf_returns_existing_document():
     assert isinstance(body["text"], str)
 
 
+def test_extract_corrupt_pdf_returns_422_with_generic_detail():
+    response = client.post(
+        "/extract", files={"file": ("doc.pdf", b"%PDF-1.4 broken", "application/pdf")}
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "No se pudo extraer texto del PDF"
+
+
 def test_extract_non_pdf_returns_415():
     response = client.post("/extract", files={"file": ("doc.txt", b"not a pdf", "text/plain")})
 

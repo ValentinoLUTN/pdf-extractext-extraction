@@ -1,5 +1,6 @@
 """Extraction service: endpoints HTTP delegando en extractor y lógica de aplicación."""
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
@@ -12,6 +13,8 @@ from shared.domain import (
     PyPdfTextExtractor,
     has_pdf_extension,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -67,9 +70,13 @@ async def extract_text(
             checksum=persistence_response.get("checksum") or checksum,
             text=text,
         )
-    except PdfExtractionError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    except PdfExtractionError as error:
+        logger.error("no se pudo extraer texto del PDF: %s", error)
+        raise HTTPException(
+            status_code=422, detail="No se pudo extraer texto del PDF"
+        ) from error
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error interno: {e!s}") from e
+    except Exception as error:
+        logger.exception("error interno inesperado (%s)", type(error).__name__)
+        raise HTTPException(status_code=500, detail="Error interno") from error

@@ -6,7 +6,9 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 from fastapi import HTTPException
+from shared.web.resilience import CircuitBreaker, CircuitState
 
+import app
 from app import compute_checksum, save_to_persistence, settings
 
 URL = f"{settings.persistence_service_url}/documents"
@@ -126,3 +128,56 @@ def test_save_to_persistence_raises_502_when_conflict_lookup_fails(lookup_failur
     assert exc_info.value.detail == "No se pudo guardar el documento en persistence-service"
     assert post.await_count == 1
     assert get.await_count == 1
+
+
+def _local_breaker(**overrides) -> CircuitBreaker:
+    params = {
+        "service": "persistence",
+        "failure_threshold": 5,
+        "recovery_timeout": 30,
+        "call_timeout": 120,
+    }
+    params.update(overrides)
+    return CircuitBreaker(**params)
+
+
+def test_breaker_opens_and_short_circuits_without_touching_peer(monkeypatch):
+    breaker = _local_breaker(failure_threshold=1)
+    monkeypatch.setattr(app, "persistence_breaker", breaker)
+
+    post = AsyncMock(side_effect=_connect_error())
+
+    with patch("httpx.AsyncClient.post", new=post), pytest.raises(HTTPException) as exc_info:
+        asyncio.run(save_to_persistence(TEXT, CHECKSUM))
+
+    assert exc_info.value.status_code == 502
+    assert post.await_count == 3
+    assert breaker.state is CircuitState.OPEN
+
+    with patch("httpx.AsyncClient.post", new=post), pytest.raises(HTTPException) as exc_info:
+        asyncio.run(save_to_persistence(TEXT, CHECKSUM))
+
+    assert exc_info.value.status_code == 502
+    assert post.await_count == 3
+
+
+def test_breaker_half_open_recovers_to_closed(monkeypatch):
+    breaker = _local_breaker(failure_threshold=1, recovery_timeout=0.2)
+    monkeypatch.setattr(app, "persistence_breaker", breaker)
+
+    post = AsyncMock(side_effect=_connect_error())
+    with patch("httpx.AsyncClient.post", new=post), pytest.raises(HTTPException):
+        asyncio.run(save_to_persistence(TEXT, CHECKSUM))
+
+    assert breaker.failure_count == 1
+
+    asyncio.run(asyncio.sleep(0.3))
+    assert breaker.state is CircuitState.HALF_OPEN
+
+    post.side_effect = [_response(201, PAYLOAD)]
+    with patch("httpx.AsyncClient.post", new=post):
+        result = asyncio.run(save_to_persistence(TEXT, CHECKSUM))
+
+    assert result == PAYLOAD
+    assert breaker.state is CircuitState.CLOSED
+    assert post.await_count == 4
