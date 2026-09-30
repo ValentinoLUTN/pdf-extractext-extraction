@@ -5,14 +5,14 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from pydantic import BaseModel
-
-from app import compute_checksum, save_to_persistence
 from shared.domain import (
     MAX_PDF_SIZE_BYTES,
     PdfExtractionError,
     PyPdfTextExtractor,
     has_pdf_extension,
 )
+
+from app import compute_checksum, save_to_persistence
 
 logger = logging.getLogger(__name__)
 
