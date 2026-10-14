@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from shared.web.cors import add_cors
-from shared.web.logging import RequestIdMiddleware, setup_logging
+from shared.web.logging import RequestIdMiddleware, TimingMiddleware, setup_logging
 
 import app as app_state
 from routes import router
@@ -28,6 +28,9 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="PDF Extraction Service", version="1.0.0", lifespan=lifespan)
 
+# El último agregado envuelve a los anteriores, así que Timing va primero para
+# quedar dentro del contexto de RequestIdMiddleware y heredar el request-id.
+app.add_middleware(TimingMiddleware)
 app.add_middleware(RequestIdMiddleware)
 add_cors(app)
 

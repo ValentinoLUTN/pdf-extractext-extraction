@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 from fakes import FailingRedisClient, FakeExtractionCache
 from fastapi.testclient import TestClient
+from shared.web.logging import RequestIdMiddleware, TimingMiddleware
 
 import app as app_module
 import routes
@@ -55,6 +56,14 @@ def test_health_check():
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["service"] == "extraction-service"
+
+
+def test_timing_middleware_is_registered_inside_request_id():
+    registered = [middleware.cls for middleware in app.user_middleware]
+    assert TimingMiddleware in registered
+    # El menor índice es el más externo: RequestId debe correr antes que Timing
+    # para que el log de duración herede el request-id.
+    assert registered.index(RequestIdMiddleware) < registered.index(TimingMiddleware)
 
 
 def test_extract_valid_pdf_returns_document_and_text():
