@@ -17,13 +17,20 @@ setup_logging(SERVICE_NAME)
 
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+    # El publisher real se crea acá y se cierra en el shutdown; los tests usan
+    # el Noop por defecto o inyectan un fake.
+    app_state.event_publisher = app_state.build_event_publisher(app_state.settings)
+    start = getattr(app_state.event_publisher, "start", None)
+    if start is not None:
+        await start()
     try:
         yield
     finally:
-        # Disposability: cierre ordenado del adaptador de caché al apagar.
-        close = getattr(app_state.extraction_cache, "aclose", None)
-        if close is not None:
-            await close()
+        # Disposability: cierre ordenado de caché y publisher al apagar.
+        for resource in (app_state.extraction_cache, app_state.event_publisher):
+            close = getattr(resource, "aclose", None)
+            if close is not None:
+                await close()
 
 
 app = FastAPI(title="PDF Extraction Service", version="1.0.0", lifespan=lifespan)
