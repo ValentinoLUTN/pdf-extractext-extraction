@@ -14,7 +14,7 @@ from shared.domain import (
 )
 
 import app
-from app import compute_checksum, save_to_persistence
+from app import compute_checksum, publish_document_extracted, save_to_persistence
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +80,9 @@ async def extract_text(
                     "payload de caché inválido (checksum=%s); se recalcula", checksum
                 )
             else:
+                # Un cache hit es un reintento del cliente: si el evento original
+                # se perdió, esta es la última oportunidad de re-emitirlo.
+                await publish_document_extracted(cached)
                 logger.info(
                     "extraccion completada cache_hit=True pypdf_ms=%.2f persistence_ms=%.2f",
                     0.0,

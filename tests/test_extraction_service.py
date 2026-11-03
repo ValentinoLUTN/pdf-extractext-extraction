@@ -236,6 +236,33 @@ def test_extract_cache_hit_skips_extractor_and_persistence(monkeypatch):
     assert cache.gets == [checksum]
 
 
+def test_extract_cache_hit_republishes_document_extracted(monkeypatch):
+    checksum = app_module.compute_checksum(PDF)
+    payload = {"id": "doc-9", "content": "cacheado", "checksum": checksum, "text": "cacheado"}
+    cache = FakeExtractionCache({checksum: payload})
+    monkeypatch.setattr(app_module, "extraction_cache", cache)
+    publisher = FakeEventPublisher()
+    monkeypatch.setattr(app_module, "event_publisher", publisher)
+
+    response = client.post("/extract", files={"file": ("doc.pdf", PDF, "application/pdf")})
+
+    assert response.status_code == 200
+    assert [event["document_id"] for event in publisher.events] == ["doc-9"]
+
+
+def test_extract_cache_hit_survives_event_publisher_failure(monkeypatch):
+    checksum = app_module.compute_checksum(PDF)
+    payload = {"id": "doc-9", "content": "cacheado", "checksum": checksum, "text": "cacheado"}
+    cache = FakeExtractionCache({checksum: payload})
+    monkeypatch.setattr(app_module, "extraction_cache", cache)
+    monkeypatch.setattr(app_module, "event_publisher", FakeEventPublisher(fail=True))
+
+    response = client.post("/extract", files={"file": ("doc.pdf", PDF, "application/pdf")})
+
+    assert response.status_code == 200
+    assert response.json()["id"] == "doc-9"
+
+
 def test_extract_cache_miss_extracts_persists_and_caches(monkeypatch):
     checksum = app_module.compute_checksum(PDF)
     cache = FakeExtractionCache()
