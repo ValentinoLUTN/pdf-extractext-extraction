@@ -2,7 +2,7 @@
 
 import logging
 import time
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from pydantic import BaseModel, ValidationError
@@ -33,6 +33,9 @@ class ExtractionResponse(BaseModel):
     content: str
     checksum: str
     text: str
+    # Campo aditivo: un cliente viejo lo ignora y uno nuevo sabe si debe
+    # reintentar POST /summary/{id} cuando el evento no llegó a Kafka.
+    summary_status: Literal["queued", "unavailable"] = "queued"
 
 
 def get_extractor() -> PyPdfTextExtractor:
@@ -82,7 +85,12 @@ async def extract_text(
             else:
                 # Un cache hit es un reintento del cliente: si el evento original
                 # se perdió, esta es la última oportunidad de re-emitirlo.
-                await publish_document_extracted(cached)
+                summary_enqueued = await publish_document_extracted(cached)
+                response = response.model_copy(
+                    update={
+                        "summary_status": "queued" if summary_enqueued else "unavailable"
+                    }
+                )
                 logger.info(
                     "extraccion completada cache_hit=True pypdf_ms=%.2f persistence_ms=%.2f",
                     0.0,
@@ -95,7 +103,8 @@ async def extract_text(
         pypdf_ms = _elapsed_ms(pypdf_started)
 
         persistence_started = time.perf_counter()
-        persistence_response = await save_to_persistence(text, checksum)
+        persist_result = await save_to_persistence(text, checksum)
+        document = persist_result.document
         persistence_ms = _elapsed_ms(persistence_started)
 
         logger.info(
@@ -105,10 +114,11 @@ async def extract_text(
         )
 
         response = ExtractionResponse(
-            id=persistence_response.get("id"),
-            content=persistence_response.get("content") or text,
-            checksum=persistence_response.get("checksum") or checksum,
+            id=document.get("id"),
+            content=document.get("content") or text,
+            checksum=document.get("checksum") or checksum,
             text=text,
+            summary_status="queued" if persist_result.summary_enqueued else "unavailable",
         )
         await app.extraction_cache.set(checksum, response.model_dump())
         return response

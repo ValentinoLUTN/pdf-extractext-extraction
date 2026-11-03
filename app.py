@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+from dataclasses import dataclass
 
 import httpx
 from fastapi import HTTPException
@@ -22,6 +23,14 @@ logger = logging.getLogger(__name__)
 SAFE_PERSISTENCE_ERROR = "No se pudo guardar el documento en persistence-service"
 
 DEFAULT_EXTRACTION_CACHE_TTL_SECONDS = 3600
+
+
+@dataclass(frozen=True)
+class PersistResult:
+    """Resultado de persistir: el documento y si el resumen quedó encolado."""
+
+    document: dict
+    summary_enqueued: bool
 
 
 class Settings(BaseSettings):
@@ -130,24 +139,40 @@ async def _fetch_existing_document(checksum: str) -> dict:
             raise HTTPException(status_code=502, detail=SAFE_PERSISTENCE_ERROR) from error
 
 
-async def publish_document_extracted(document: dict) -> None:
-    """Publica ``document.extracted`` de forma fail-open.
+async def _publish_extracted_event(document: dict) -> None:
+    """Publica un evento ya construido; deja que el error llegue al reintento."""
+    await event_publisher.publish(build_document_extracted_event(document))
 
-    El evento es best-effort: cualquier fallo del bus se loguea y se descarta,
-    porque el cliente ya obtuvo su respuesta y Kafka no debe ser motivo de 5xx.
+
+async def publish_document_extracted(document: dict) -> bool:
+    """Publica ``document.extracted`` con reintentos y sin romper la response.
+
+    El documento ya está persistido, así que un 5xx acá mentiría sobre el
+    resultado. Se reintenta con backoff y, si se agotan los intentos, se
+    devuelve ``False`` para que el cliente sepa que el resumen no quedó
+    encolado y pueda pedirlo explícitamente con ``POST /summary/{id}``.
     """
     try:
-        await event_publisher.publish(build_document_extracted_event(document))
+        await retry_with_backoff(
+            _publish_extracted_event,
+            document,
+            attempts=3,
+            base_delay=0.5,
+            max_delay=2,
+            retry_on=(Exception,),
+        )
     except Exception as error:
-        logger.warning(
-            "no se pudo publicar document.extracted (document_id=%s); se ignora: %s",
+        logger.exception(
+            "no se pudo publicar document.extracted tras 3 intentos "
+            "(document_id=%s); el resumen no quedó encolado: %s",
             document.get("id"),
             type(error).__name__,
-            exc_info=True,
         )
+        return False
+    return True
 
 
-async def save_to_persistence(content: str, checksum: str) -> dict:
+async def save_to_persistence(content: str, checksum: str) -> PersistResult:
     """Persiste el documento; un 409 por checksum es éxito (deduplicación idempotente).
 
     El backoff con jitter cadena solo los errores transitorios del POST (4xx se
@@ -156,7 +181,7 @@ async def save_to_persistence(content: str, checksum: str) -> dict:
     reintenta: un fallo ahí responde 502 y el cliente vuelve a enviar el PDF.
 
     Una vez obtenido el document (creado o recuperado por 409), publica
-    ``document.extracted`` de forma fail-open y lo devuelve.
+    ``document.extracted`` y reporta si el resumen quedó encolado.
     """
     try:
         result = await persistence_breaker.call(
@@ -189,5 +214,5 @@ async def save_to_persistence(content: str, checksum: str) -> dict:
     else:
         document = result
 
-    await publish_document_extracted(document)
-    return document
+    summary_enqueued = await publish_document_extracted(document)
+    return PersistResult(document=document, summary_enqueued=summary_enqueued)

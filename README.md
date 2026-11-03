@@ -67,5 +67,9 @@ La caché es *cache-aside* y **fail-open**: si Redis no está disponible, el
 servicio extrae y persiste igual, solo loguea un warning. La clave es
 `extract:{sha256}` del PDF.
 
-Los eventos `document.extracted` se publican en Kafka de forma **fail-open**: un
-broker caído solo deja un warning y la extracción responde igual.
+Los eventos `document.extracted` se publican en Kafka con **3 intentos y backoff**
+(0,5 s / 1 s con jitter). Si el broker sigue caído, la respuesta sigue siendo
+`200` —el documento ya está persistido— pero incluye
+`summary_status: "unavailable"` en vez de `"queued"`: el cliente debe reintentar
+`POST /summary/{document_id}`. Un cache hit también republica el evento, porque
+es la última oportunidad de recuperar un resumen perdido.
