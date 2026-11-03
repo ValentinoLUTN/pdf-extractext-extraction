@@ -2,6 +2,24 @@
 
 Servicio de extracción de texto de archivos PDF. Expone una API FastAPI para extraer el contenido de documentos PDF.
 
+## Endpoints
+
+| Método | Ruta       | Descripción |
+| ------ | ---------- | ----------- |
+| `POST` | `/upload`  | **Caso de uso principal:** valida con Validation, extrae, persiste y publica `documents.extracted` en una sola llamada. |
+| `POST` | `/extract` | Extracción standalone con validación local de `shared`. Mantiene la compatibilidad con clientes existentes. |
+| `GET`  | `/health`  | Healthcheck del servicio. |
+
+`POST /upload` es **fail-closed** respecto de Validation: si rechaza el PDF
+(`400`/`413`/`415`) se reenvía el mismo status, y si no responde (timeout,
+error de red o `5xx`) devuelve `503` sin persistir ni publicar nada. La
+secuencia manual `/validate` → `/extract` → `POST /documents` sigue existiendo
+como equivalente, pero el flujo recomendado es una sola llamada:
+
+```bash
+curl -F "file=@documento.pdf" http://extraction.pdf.localhost/upload
+```
+
 ## Instalación
 
 Instalar las dependencias:
@@ -52,6 +70,8 @@ Ambos comandos se ejecutan en cada push y PR mediante GitHub Actions (`.github/w
 | `PERSISTENCE_FAILURE_THRESHOLD` | Fallas consecutivas antes de abrir el circuito | `5`                      |
 | `PERSISTENCE_RECOVERY_TIMEOUT_SECONDS` | Ventana antes de sondear la recuperación (segundos) | `30`              |
 | `PERSISTENCE_CALL_TIMEOUT_SECONDS` | Tiempo máximo de espera por llamada a persistence (segundos) | `120` |
+| `VALIDATION_SERVICE_URL`        | URL base del servicio de validación          | `http://validation-service:8000` |
+| `VALIDATION_CALL_TIMEOUT_SECONDS` | Tiempo máximo de espera por llamada a validation (segundos) | `10` |
 | `REDIS_URL`                     | URL de Redis para la caché de extracción     | `redis://redis:6379/0`   |
 | `EXTRACTION_CACHE_TTL_SECONDS`  | TTL de la caché de resultados (segundos)     | `3600`                   |
 | `EXTRACTION_CACHE_ENABLED`      | Habilita la caché (`false` la desactiva)     | `true`                   |

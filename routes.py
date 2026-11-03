@@ -14,7 +14,12 @@ from shared.domain import (
 )
 
 import app
-from app import compute_checksum, publish_document_extracted, save_to_persistence
+from app import (
+    compute_checksum,
+    publish_document_extracted,
+    save_to_persistence,
+    validate_with_validation_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,24 +61,25 @@ async def _read_limited(file: UploadFile) -> bytes:
     return b"".join(chunks)
 
 
-@router.post("/extract", response_model=ExtractionResponse)
-async def extract_text(
-    file: UploadFile,
-    extractor: Annotated[PyPdfTextExtractor, Depends(get_extractor)],
-) -> ExtractionResponse:
-    if not has_pdf_extension(file.filename):
+def _ensure_pdf_extension(filename: str | None) -> None:
+    """Chequeo local barato: corta antes de leer el archivo si no es un PDF."""
+    if not has_pdf_extension(filename):
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail="El archivo debe tener extensión .pdf",
         )
 
-    try:
-        content = await _read_limited(file)
-        checksum = compute_checksum(content)
 
-        # Cache-aside: si el mismo PDF ya se extrajo (TTL de 1 h), el resultado
-        # cacheado se devuelve al instante sin pypdf ni persistence. El miss y
-        # el fail-open viven en el adaptador; acá solo se consume el puerto.
+async def _run_extraction(
+    content: bytes,
+    checksum: str,
+    extractor: PyPdfTextExtractor,
+) -> ExtractionResponse:
+    """Cache-aside, extracción y persistencia compartidos por /extract y /upload."""
+    try:
+        # Si el mismo PDF ya se extrajo (TTL de 1 h), el resultado cacheado se
+        # devuelve al instante sin pypdf ni persistence. El miss y el fail-open
+        # viven en el adaptador; acá solo se consume el puerto.
         cached = await app.extraction_cache.get(checksum)
         if cached is not None:
             try:
@@ -132,3 +138,32 @@ async def extract_text(
     except Exception as error:
         logger.exception("error interno inesperado (%s)", type(error).__name__)
         raise HTTPException(status_code=500, detail="Error interno") from error
+
+
+@router.post("/extract", response_model=ExtractionResponse)
+async def extract_text(
+    file: UploadFile,
+    extractor: Annotated[PyPdfTextExtractor, Depends(get_extractor)],
+) -> ExtractionResponse:
+    """Extracción standalone: valida localmente con shared y no llama a Validation."""
+    _ensure_pdf_extension(file.filename)
+    content = await _read_limited(file)
+    return await _run_extraction(content, compute_checksum(content), extractor)
+
+
+@router.post("/upload", response_model=ExtractionResponse)
+async def upload_document(
+    file: UploadFile,
+    extractor: Annotated[PyPdfTextExtractor, Depends(get_extractor)],
+) -> ExtractionResponse:
+    """Caso de uso compuesto: Validation → extracción → persistencia → evento.
+
+    Fail-closed: si Validation rechaza o no responde, no se persiste ni se
+    publica nada.
+    """
+    _ensure_pdf_extension(file.filename)
+    content = await _read_limited(file)
+    await validate_with_validation_service(
+        content, file.filename or "documento.pdf"
+    )
+    return await _run_extraction(content, compute_checksum(content), extractor)

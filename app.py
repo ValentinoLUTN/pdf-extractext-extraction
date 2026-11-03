@@ -21,6 +21,8 @@ from events import (
 logger = logging.getLogger(__name__)
 
 SAFE_PERSISTENCE_ERROR = "No se pudo guardar el documento en persistence-service"
+SAFE_VALIDATION_ERROR = "validation-service no disponible"
+VALIDATION_REJECTION_DETAIL = "El PDF no pasó la validación"
 
 DEFAULT_EXTRACTION_CACHE_TTL_SECONDS = 3600
 
@@ -38,6 +40,8 @@ class Settings(BaseSettings):
     persistence_failure_threshold: int = 5
     persistence_recovery_timeout_seconds: float = 30
     persistence_call_timeout_seconds: float = 120
+    validation_service_url: str = "http://validation-service:8000"
+    validation_call_timeout_seconds: float = 10
     redis_url: str = "redis://redis:6379/0"
     extraction_cache_ttl_seconds: int = DEFAULT_EXTRACTION_CACHE_TTL_SECONDS
     extraction_cache_enabled: bool = True
@@ -137,6 +141,52 @@ async def _fetch_existing_document(checksum: str) -> dict:
                 error,
             )
             raise HTTPException(status_code=502, detail=SAFE_PERSISTENCE_ERROR) from error
+
+
+def _validation_client() -> httpx.AsyncClient:
+    """Cliente HTTP hacia validation con el timeout configurado por entorno."""
+    return httpx.AsyncClient(timeout=settings.validation_call_timeout_seconds)
+
+
+def _validation_detail(response: httpx.Response) -> str:
+    """Extrae el ``detail`` del contrato de Validation sin romper si no es JSON."""
+    try:
+        body = response.json()
+    except ValueError:
+        return VALIDATION_REJECTION_DETAIL
+    detail = body.get("detail") if isinstance(body, dict) else None
+    return detail if isinstance(detail, str) and detail else VALIDATION_REJECTION_DETAIL
+
+
+async def validate_with_validation_service(content: bytes, filename: str) -> None:
+    """Valida el PDF contra validation-service antes de extraer o persistir.
+
+    Fail-closed: si Validation rechaza o no está disponible, se levanta la
+    excepción HTTP correspondiente y el flujo no deja efectos laterales.
+    """
+    url = f"{settings.validation_service_url}/validate"
+    try:
+        async with _validation_client() as client:
+            response = await client.post(
+                url,
+                files={"file": (filename, content, "application/pdf")},
+                headers=request_id_header(),
+            )
+    except httpx.RequestError as error:
+        logger.error("validation-service inalcanzable: %s", type(error).__name__)
+        raise HTTPException(status_code=503, detail=SAFE_VALIDATION_ERROR) from error
+
+    if response.status_code == 200:
+        return
+
+    if response.status_code in (400, 413, 415):
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=_validation_detail(response),
+        )
+
+    logger.error("validation-service respondió %s", response.status_code)
+    raise HTTPException(status_code=503, detail=SAFE_VALIDATION_ERROR)
 
 
 async def _publish_extracted_event(document: dict) -> None:
