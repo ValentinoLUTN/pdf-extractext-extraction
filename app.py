@@ -67,8 +67,9 @@ event_publisher: EventPublisher = NoopEventPublisher()
 def build_persistence_breaker(config: Settings) -> CircuitBreaker:
     """Compone el breaker de persistence con los límites configurables.
 
-    El default de ``call_timeout`` (120 s) cubre el peor caso de reintentos:
-    3 x timeout httpx de 30 s + sleeps.
+    ``call_timeout`` y el timeout de cada llamada HTTP salen del mismo setting,
+    así que cambiarlo mueve ambos límites a la vez. Con el default de 120 s el
+    breaker corta la operación completa si los reintentos agotan ese presupuesto.
     """
     return CircuitBreaker(
         service="persistence",
@@ -86,6 +87,11 @@ def compute_checksum(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+def _persistence_client() -> httpx.AsyncClient:
+    """Cliente HTTP hacia persistence con el timeout configurado por entorno."""
+    return httpx.AsyncClient(timeout=settings.persistence_call_timeout_seconds)
+
+
 async def _post_document(content: str, checksum: str) -> dict | None:
     """POST a /documents; devuelve None ante un 409 (checksum ya existente).
 
@@ -94,7 +100,7 @@ async def _post_document(content: str, checksum: str) -> dict | None:
     """
     url = f"{settings.persistence_service_url}/documents"
     payload = {"content": content, "checksum": checksum}
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with _persistence_client() as client:
         response = await client.post(url, json=payload, headers=request_id_header())
         if response.status_code == 409:
             return None
@@ -110,7 +116,7 @@ async def _fetch_existing_document(checksum: str) -> dict:
     ciclo empieza de nuevo.
     """
     url = f"{settings.persistence_service_url}/documents/by-checksum/{checksum}"
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with _persistence_client() as client:
         try:
             response = await client.get(url, headers=request_id_header())
             response.raise_for_status()

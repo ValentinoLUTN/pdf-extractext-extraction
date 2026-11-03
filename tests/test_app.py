@@ -1,7 +1,7 @@
 """Tests de la capa de aplicación: checksum, reintentos y duplicados ante persistence-service."""
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -44,6 +44,16 @@ def test_compute_checksum_is_stable_for_the_same_input():
 
 def test_compute_checksum_differs_for_different_input():
     assert compute_checksum(b"documento a") != compute_checksum(b"documento b")
+
+
+def test_persistence_client_uses_configured_timeout(monkeypatch):
+    monkeypatch.setattr(app.settings, "persistence_call_timeout_seconds", 7.5)
+    client_factory = MagicMock()
+
+    with patch("app.httpx.AsyncClient", new=client_factory):
+        app._persistence_client()
+
+    client_factory.assert_called_once_with(timeout=7.5)
 
 
 def test_save_to_persistence_returns_response_on_first_attempt():
