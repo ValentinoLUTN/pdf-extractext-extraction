@@ -66,6 +66,7 @@ Ambos comandos se ejecutan en cada push y PR mediante GitHub Actions (`.github/w
 
 | Variable                        | Descripción                                  | Valor por defecto        |
 | ------------------------------- | -------------------------------------------- | ------------------------ |
+| `PORT`                          | Puerto de escucha de uvicorn                 | `8000`                   |
 | `PERSISTENCE_SERVICE_URL`       | URL base del servicio de persistencia        | `http://persistence-service:8000` |
 | `PERSISTENCE_FAILURE_THRESHOLD` | Fallas consecutivas antes de abrir el circuito | `5`                      |
 | `PERSISTENCE_RECOVERY_TIMEOUT_SECONDS` | Ventana antes de sondear la recuperación (segundos) | `30`              |
