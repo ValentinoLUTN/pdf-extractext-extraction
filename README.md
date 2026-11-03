@@ -36,13 +36,31 @@ pip install -r requirements-dev.txt
 
 `requirements-dev.txt` ya incluye `requirements.txt`, así que alcanza con ese comando para trabajar localmente.
 
-## Ejecución
+## Modos de ejecución
 
-Levantar el servidor en modo desarrollo:
+### Compose (recomendado)
+
+Todo el stack corre por la red interna de compose y se accede solo a través de
+Traefik (`http://extraction.pdf.localhost`). En este modo extraction resuelve
+Kafka, Redis, persistence y validation por sus nombres de servicio, sin publicar
+puertos directos.
+
+### Local con uvicorn
+
+Para correr extraction solo contra los backing services hace falta un override
+de infra que publique `8001` (validation), `8003` (persistence), `9092` (Kafka) y
+`6379` (Redis) en el host. Sin ese override, los hosts `localhost` no resuelven
+y lo más simple es levantar todo con compose.
+
+Con el override activo:
 
 ```bash
 uvicorn main:app --reload --port 8002
 ```
+
+El `.env.example` trae los valores de `localhost` para este modo; el bloque de
+compose queda comentado para no mezclar entornos. La imagen distroless usa
+`entrypoint.py`, que lee `PORT` para arrancar uvicorn.
 
 ## Tests
 
